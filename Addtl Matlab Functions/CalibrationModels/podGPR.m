@@ -24,24 +24,15 @@ else; reffileName = settingsSet.fileList.colocation.reference.files.name{setting
 currentRef = split(reffileName,'.');
 currentRef = currentRef{1};
 
-filename = [settingsSet.podList.podName{settingsSet.loops.j} currentRef 'GPRsave.mat'];
-regPath = fullfile(settingsSet.outpath,filename);
+%Scale X (use z-scores)
+[Z,mu,sigma] = zscore(table2array(X));
+normmat = [mu',sigma'];
+X = array2table(Z,'VariableNames',X.Properties.VariableNames);
 
-%Standardize X (subtract mean and divide by std deviation)
-normmat = zeros(size(X,2),2);
-for i = 1:size(X,2)
-    tempx = table2array(X(:,i));
-    medx = mean(tempx);
-    stdx = std(tempx);
-    if stdx == 0
-        stdx = 1;
-    end
-    tempx = (tempx-medx)/stdx;
-    normmat(i,:) = [medx stdx];
-    X(:,i) = array2table(tempx,'VariableNames',X.Properties.VariableNames(i));
-end
 
 %% If GPR has already been optimized for this pod, can skip the optimization, which is really slow
+filename = [settingsSet.podList.podName{settingsSet.loops.j} currentRef 'GPRsave.mat'];
+regPath = fullfile(settingsSet.outpath,filename);
 if exist(regPath,'file')==2
     %Load the previous analysis
     load(regPath);
@@ -59,21 +50,13 @@ else
         C = [X Y(:,i)];
         yname = Y.Properties.VariableNames{i};
         
-        %Automatically optimize the hyperparameters for a guassian process regression
-        %         try %My own optimization
-        %         results = bayesopt(@(params)oobErrGPR(params,C),hyperparametersGPR,...
-        %             'AcquisitionFunctionName','expected-improvement-plus','Verbose',0);
-        %         bestHyperparameters = results.XAtMinObjective;
-        %         gprstruct(:,i) = [bestHyperparameters.scalePar1; bestHyperparameters.scalePar2];
-        %
-        %         catch %If it breaks, use the default optimization algorithm
+        %Use built in optimization
         rng(1)
         testmdl = fitrgp(C,yname,'KernelFunction','squaredexponential',...
             'OptimizeHyperparameters','auto','HyperparameterOptimizationOptions',...
             struct('AcquisitionFunctionName','expected-improvement-plus',...
-            'ShowPlots',true,'UseParallel',true));
+            'ShowPlots',true,'UseParallel',true,'MaxTime',60*10,'Verbose',0));%Note: this limits it to 10 minutes. You may want to extend that if you want better optimization
         gprstruct(:,i) = testmdl.KernelInformation.KernelParameters;
-%         end
         
         close all
     end
@@ -97,45 +80,21 @@ mdlobj{i+1} = normmat;
 end
 %--------------------------------------------------------------------------
 
-% %--------------------------------------------------------------------------
-% function testErr = oobErrGPR(params,C)
-% %oobErrRF Fits a GPR model with specified parameters and then tests it
-% %using simple 5 fold validation
-% 
-% 
-% kparams0 = [params.scalePar1, params.scalePar2];
-% 
-% %scalePar = params.scalePar;
-% %kernFunc = char(params.kernFunc);
-% ntrain = size(C,1) - floor(size(C,1)/5);
-% yname = C.Properties.VariableNames{end};
-% 
-% %Fit the model on a subset of the data
-% testmdl = fitrgp(C(1:ntrain,:),yname,'KernelFunction','squaredexponential','KernelParameters',kparams0);%'Sigma',scalePar);
-%      
-% %oobErr = oobQuantileError(randomForest);
-% 
-% %Test model
-% y_hat = predict(testmdl,C(ntrain:end,:));
-% Y = table2array(C(ntrain:end,end));
-% testErr = sqrt(mean((Y-y_hat).^2));
-% 
-% end
-% %--------------------------------------------------------------------------
-
 %--------------------------------------------------------------------------
 function y_hat = gprApply(X,mdlobj,~)
-%Don't want it to just fit to points that are close in time
-%if any(strcmp('telapsed', X.Properties.VariableNames));X.telapsed = [];end
-%Normalize the new X
+
+%Normalize the new X with the original values
 normmat = mdlobj{end};
 mdlobj = mdlobj(1:end-1);
 for i = 1:size(X,2)
     medx = normmat(i,1);
     stdx = normmat(i,2);
-    tempx = table2array(X(:,i));
-    tempx = (tempx-medx)/stdx;
-    normmat(i,:) = [medx stdx];
+    if stdx==0
+        tempx = zeros(size(X,1));
+    else
+        tempx = table2array(X(:,i));
+        tempx = (tempx-medx)/stdx;
+    end
     X(:,i) = array2table(tempx,'VariableNames',X.Properties.VariableNames(i));
 end
 

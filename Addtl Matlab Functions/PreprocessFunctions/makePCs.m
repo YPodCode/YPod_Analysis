@@ -53,42 +53,9 @@ else
     %Convert X to matrix
     X = table2array(X);
     
-    %Create matrix to hold normalized values
-    normX = X;
-    varMeanMat = zeros(size(X,2),2);
-    
-    %Loop through each column in X and normalize it
-    for i = 1:size(X,2)
-        
-        %Analyze each column separately
-        tempX = X(:,i);
-        fprintf('Normalizing column %s \n',varNames{i});
-        
-        try
-            %Calculate the mean and std deviation
-            meanx = mean(tempX,'omitnan');
-            stdx = std(tempX,'omitnan');
-            
-            %Normalize that array
-            tempX = (tempX-meanx)/stdx;
-            
-            %Store mean and standard deviation for use later
-            varMeanMat(i,1) = meanx;
-            varMeanMat(i,2) = stdx;
-        catch err
-            warning('Could not normalize column %s',varNames{i});
-            varMeanMat(i,1) = 0;
-            varMeanMat(i,2) = 0;
-        end
-        
-        %Assign into the normalized X matrix
-        normX(:,i) = tempX;
-        
-        clear tempX meanx stdx
-    end %loop normalizing each column of X
-
-    %Remove columns with no variance or that caused an error when normalizing
-    normX(:,varMeanMat(:,2)==0)=[];
+    %Normalize X
+    [normX,mu,std]=zscore(X);
+    varMeanMat = [mu' std'];
     
     %Perform the PCA Analysis using the SVD algorithm
     [coeff,score,~,~,explained,~]=pca(normX,'Centered',false);
@@ -106,14 +73,14 @@ else
     subplot(1,2,2)
     npcs = min(size(score,2),20);
     xpoints = 1:size(score,1);
-    colors = bone(npcs+1);
+    colors = jet(npcs);
     plot(xpoints,score(:,1),'Color',colors(1,:));
     hold on
     for j = 2:npcs
         plot(xpoints,score(:,j),'Color',colors(j,:));
         hold on
     end
-    legend(split(num2str(1:npcs),'  '),'Location','eastoutside');
+    legend(split(num2str(1:npcs),'  '),'Location','best');
     
     %% Allow the user to determine how many PCs they would like to keep
     keepPCs = input('How many PCs would you like to use?   ');
@@ -123,7 +90,7 @@ else
         currentPod = settingsSet.podList.podName{settingsSet.loops.j};
         temppath = [currentPod '_PC_Variance'];
         temppath = fullfile(settingsSet.outpath,temppath);
-        saveas(gcf,temppath,'jpeg');
+        saveas(gcf,temppath,'fig');
         clear temppath
         close(gcf)
     end
@@ -143,14 +110,14 @@ else
     subplot(1,2,2);
     barh(coeff(sortC,1:keepPCs)','histc'); colormap('jet');
     yticks(1:nvars);yticklabels(split(num2str(1:keepPCs),'  ')); grid('on'); ylim([1,keepPCs+1]); ylabel('PC #')
-    xlabel('Weight of Variable');legend(varNames(sortC),'Location','eastoutside');
+    xlabel('Weight of Variable');legend(varNames(sortC),'Location','best');
     title('Variable Weights for Selected PCs');
     
     %Save image from PCs
-    if settingsSet.savePlots
+    if settingsSet.savePlots && settingsSet.loops.kk==settingsSet.nFoldRep+1
         temppath = [currentPod '_PC_Contribs'];
         temppath = fullfile(settingsSet.outpath,temppath);
-        saveas(gcf,temppath,'jpeg');
+        saveas(gcf,temppath,'fig');
         clear temppath
         close(gcf)
     end

@@ -5,14 +5,9 @@ function valList = clusterVal(~, X, ~, n)
 
 warning('off','stats:kmeans:FailedToConvergeRep')
 
-%"Normalize" X so all columns have similar variability
+%"Normalize" X so all columns have similar magnitudes
 clusterX = table2array(X);
-for i = 1:size(clusterX,2)
-    meanx = mean(clusterX(:,i),'omitnan');
-    stdx = std(clusterX(:,i),'omitnan');
-    clusterX(:,i) = (clusterX(:,i) - meanx)/stdx;
-end
-%clusterX = normc(clusterX);
+clusterX = zscore(clusterX);
 
 %Tries 5 replicates for each k to account for random initialization of centers
 rng(1); %Set seed for reproducibility

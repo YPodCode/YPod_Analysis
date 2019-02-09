@@ -12,9 +12,6 @@ end
 %--------------------------------------------------------------------------
 function mdlobj = line1Gen(Y,X,settingsSet)
 
-columnNames = X.Properties.VariableNames;
-foundCol = 0;
-
 %Assume that the first sensor is the one to model
 mainSensor = settingsSet.podSensors{1}; 
 
@@ -22,30 +19,23 @@ mainSensor = settingsSet.podSensors{1};
 pollutant = Y.Properties.VariableNames{1};
 
 %Find the column containing the sensor for analysis
-for i = 1:length(columnNames)
-    if any(regexpi(columnNames{i},mainSensor))
-        foundCol=foundCol+1; %Keep track of how many columns matching this sensor were found
-        mainSensor = columnNames{i}; %Get the real name of the sensor
-    end
+columnNames = X.Properties.VariableNames;
+mainSensorIndex = contains(columnNames,mainSensor,'IgnoreCase',true);
+mainSensor = columnNames{mainSensorIndex};
+sensorData = X(:,mainSensorIndex);
+
+if sum(mainSensorIndex) > 1
+    warning(['Did not find a unique column for sensor: ' mainSensor]);
+    %Scale multiple sensors and then average them to keep model invertable
+    sensorData = zscore(table2array(sensorData));
+    sensorData = mean(sensorData,2);
+    sensorData = array2table(sensorData,'VariableNames',{mainSensor});
+else
+    assert(sum(mainSensorIndex) == 1,['Did not find a column for sensor: ' mainSensor])
 end
-assert(foundCol == 1,'Could not find a unique sensor column');
 
-C=[Y,X(:,mainSensor)]; %Join into a temporary table
-
-% %Sensor response as function of gas concentration
-% modelSpec = [mainSensor '~' pollutant]; 
-% 
-% %Fit the model
-% mdl = fitlm(C,modelSpec); 
-% 
-% %Get the estimates of coefficients
-% coeffs = mdl.Coefficients.Estimate'; 
-% 
-% %Invert the model (concentration~Figaro)
-% mdlinv = @(p,sens) ((sens-p(1))./p(2)); 
-% 
-% %Get the estimated concentrations
-% y_hat = mdlinv(coeffs,C.(mainSensor)); 
+%Join into a temporary table
+C=[Y(:,1),sensorData];  %Join into a temporary table
 
 %Fit the model
 modelSpec = [pollutant '~' mainSensor]; 
@@ -57,23 +47,30 @@ end
 %--------------------------------------------------------------------------
 
 %--------------------------------------------------------------------------
-function y_hat = line1Apply(X,mdlobj,settingsSet)
+function y_hat = line1Apply(X,mdlobj,~)
 
 %Get fitted model components
 mdl = mdlobj{1};
 mainSensor = mdlobj{2};
 
-% %Get the estimates of coefficients
-% coeffs = mdl.Coefficients.Estimate'; 
-% 
-% %Invert the model (concentration~sensor)
-% mdlinv = @(p,sens) ((sens-p(1))./p(2)); 
-% 
-% %Get the estimated concentrations
-% y_hat = mdlinv(coeffs,X.(mainSensor));
+%Find the column containing the sensor for analysis
+columnNames = X.Properties.VariableNames;
+mainSensorIndex = contains(columnNames,mainSensor,'IgnoreCase',true);
+mainSensor = columnNames{mainSensorIndex};
+sensorData = X(:,mainSensorIndex);
+
+if sum(mainSensorIndex) > 1
+    warning(['Did not find a unique column for sensor: ' mainSensor]);
+    %Scale multiple sensors and then average them to keep model invertable
+    sensorData = zscore(table2array(sensorData));
+    sensorData = mean(sensorData,2);
+    sensorData = array2table(sensorData,'VariableNames',{mainSensor});
+else
+    assert(sum(mainSensorIndex) == 1,['Did not find a column for sensor: ' mainSensor])
+end
 
 %Predict
-y_hat = predict(mdl,X.(mainSensor));
+y_hat = predict(mdl,sensorData);
 
 end
 %--------------------------------------------------------------------------

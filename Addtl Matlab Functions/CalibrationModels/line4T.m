@@ -15,22 +15,29 @@ end
 %--------------------------------------------------------------------------
 function mdlobj = line4TGen(Y,X,settingsSet)
 
-columnNames = X.Properties.VariableNames;
-foundCol = 0;
+
 mainSensor = settingsSet.podSensors{1}; %Assume that the first sensor is the one to model as the primary sensor
 %First column of Y is fitted pollutant
 pollutant = Y.Properties.VariableNames{1}; 
 
 %Find the column containing the sensor for analysis
-for i = 1:length(columnNames)
-    if any(regexpi(columnNames{i},mainSensor))
-        foundCol=foundCol+1; %Keep track of how many columns matching this sensor were found
-        mainSensor = columnNames{i}; %Get the real name of the sensor column
-    end
-end
-assert(foundCol == 1,['Could not find a unique column for sensor: ' mainSensor]);
+columnNames = X.Properties.VariableNames;
+mainSensorIndex = contains(columnNames,mainSensor,'IgnoreCase',true);
+mainSensor = columnNames{mainSensorIndex};
+sensorData = X(:,mainSensorIndex);
 
-C=[Y(:,pollutant),X(:,mainSensor)]; %Join into a temporary table
+if sum(mainSensorIndex) > 1
+    warning(['Did not find a unique column for sensor: ' mainSensor]);
+    %Scale multiple sensors and then average them to keep model invertable
+    sensorData = zscore(table2array(sensorData));
+    sensorData = mean(sensorData,2);
+    sensorData = array2table(sensorData,'VariableNames',{mainSensor});
+else
+    assert(sum(mainSensorIndex) == 1,['Did not find a column for sensor: ' mainSensor])
+end
+
+%Join into a temporary table
+C=[Y(:,pollutant),sensorData];  %Join into a temporary table
 C.temperature = X.temperature; %Add the temperature column
 C.humidity = X.humidity; %Add the humidity column
 C.telapsed = X.telapsed; %Add the elapsed time
@@ -55,8 +62,24 @@ function y_hat = line4TApply(X,mdlobj,~)
 mdl = mdlobj{1};
 mainSensor = mdlobj{2};
 
+%Find the column containing the sensor for analysis
+columnNames = X.Properties.VariableNames;
+mainSensorIndex = contains(columnNames,mainSensor,'IgnoreCase',true);
+mainSensor = columnNames{mainSensorIndex};
+sensorData = X(:,mainSensorIndex);
+
+if sum(mainSensorIndex) > 1
+    warning(['Did not find a unique column for sensor: ' mainSensor]);
+    %Scale multiple sensors and then average them to keep model invertable
+    sensorData = zscore(table2array(sensorData));
+    sensorData = mean(sensorData,2);
+    sensorData = array2table(sensorData,'VariableNames',{mainSensor});
+else
+    assert(sum(mainSensorIndex) == 1,['Did not find a column for sensor: ' mainSensor])
+end
+
 %Collect the predictor variables
-C=X(:,mainSensor); %Main sensor data
+C=sensorData; %Main sensor data
 C.temperature = X.temperature; %Add the temperature column
 C.humidity = X.humidity; %Add the humidity column
 C.telapsed = X.telapsed; %Add the elapsed time

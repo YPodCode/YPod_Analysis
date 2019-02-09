@@ -19,6 +19,7 @@ X = table2array(X);
 mdl = cell(size(Y,2),1);
 tcol=0;hcol=0;
 normMat = zeros(size(X,2),2);
+
 for i = 1:size(X,2)
     minx = min(X(:,i),[],'omitnan');
     maxx = max(X(:,i),[],'omitnan');

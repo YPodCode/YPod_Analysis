@@ -11,23 +11,28 @@ end
 
 %--------------------------------------------------------------------------
 function mdl  = line1TGen(Y,X,settingsSet)
-
-columnNames = X.Properties.VariableNames;
-foundCol = 0;
-mainSensor = settingsSet.podSensors{1}; %Assume that the first sensor is the one to model
+%Assume that the first sensor is the one to model
+mainSensor = settingsSet.podSensors{1};
 pollutant = Y.Properties.VariableNames{1};
 
 %Find the column containing the sensor for analysis
-for i = 1:length(columnNames)
-    if any(regexpi(columnNames{i},mainSensor))
-        foundCol=foundCol+1; %Keep track of how many columns matching this sensor were found
-        mainSensor = columnNames{i}; %Get the real name of the sensor
-    end
+columnNames = X.Properties.VariableNames;
+mainSensorIndex = contains(columnNames,mainSensor,'IgnoreCase',true);
+mainSensor = columnNames{mainSensorIndex};
+sensorData = X(:,mainSensorIndex);
+
+if sum(mainSensorIndex) > 1
+    warning(['Did not find a unique column for sensor: ' mainSensor]);
+    %Scale multiple sensors and then average them to keep model invertable
+    sensorData = zscore(table2array(sensorData));
+    sensorData = mean(sensorData,2);
+    sensorData = array2table(sensorData,'VariableNames',{mainSensor});
+else
+    assert(sum(mainSensorIndex) == 1,['Did not find a column for sensor: ' mainSensor])
 end
-assert(foundCol == 1,'Could not find a unique sensor column');
 
 %Join into a temporary table
-C=[Y,X(:,mainSensor)]; 
+C=[Y(:,1),sensorData]; 
 C.telapsed = X.telapsed;
 
 %Sensor response as function of gas concentration and time elapsed
@@ -44,21 +49,27 @@ end
 
 %--------------------------------------------------------------------------
 function y_hat = line1TApply(X,mdl,settingsSet)
-columnNames = X.Properties.VariableNames;
-foundCol = 0;
-mainSensor = settingsSet.podSensors{1}; %Assume that the first sensor is the one to model
+%Assume that the first sensor is the one to model
+mainSensor = settingsSet.podSensors{1}; 
 
 %Find the column containing the sensor for analysis
-for i = 1:length(columnNames)
-    if any(regexpi(columnNames{i},mainSensor))
-        foundCol=foundCol+1; %Keep track of how many columns matching this sensor were found
-        mainSensor = columnNames{i}; %Get the real name of the sensor
-    end
-end
-assert(foundCol == 1,'Could not find a unique sensor column');
+columnNames = X.Properties.VariableNames;
+mainSensorIndex = contains(columnNames,mainSensor,'IgnoreCase',true);
+mainSensor = columnNames{mainSensorIndex};
+sensorData = X(:,mainSensorIndex);
 
-%Get the data together
-C = X(:,mainSensor);
+if sum(mainSensorIndex) > 1
+    warning(['Did not find a unique column for sensor: ' mainSensor]);
+    %Scale multiple sensors and then average them to keep model invertable
+    sensorData = zscore(table2array(sensorData));
+    sensorData = mean(sensorData,2);
+    sensorData = array2table(sensorData,'VariableNames',{mainSensor});
+else
+    assert(sum(mainSensorIndex) == 1,['Did not find a column for sensor: ' mainSensor])
+end
+
+%Join into a temporary table
+C=sensorData; 
 C.telapsed = X.telapsed;
 
 %Get the fitted estimates of coefficients

@@ -23,18 +23,22 @@ mainSensor = settingsSet.podSensors{1};
 pollutant = Y.Properties.VariableNames{1}; 
 
 %Find the column containing the sensor for analysis
-foundCol = 0;
-for i = 1:length(columnNames)
-    if contains(columnNames{i},mainSensor)
-        foundCol=foundCol+1; %Keep track of how many columns matching this sensor were found
-        sensorData = X(:,i); %Extract that data into its own table
-        mainSensor = columnNames{i}; %Get the real name of the sensor
-        break
-    end
-end
-assert(foundCol == 1,['Could not find a unique column for sensor: ' mainSensor]);
+columnNames = X.Properties.VariableNames;
+mainSensorIndex = contains(columnNames,mainSensor,'IgnoreCase',true);
+mainSensor = columnNames{mainSensorIndex};
+sensorData = X(:,mainSensorIndex);
 
-%Join data into a temporary table
+if sum(mainSensorIndex) > 1
+    warning(['Did not find a unique column for sensor: ' mainSensor]);
+    %Scale multiple sensors and then average them to keep model invertable
+    sensorData = zscore(table2array(sensorData));
+    sensorData = mean(sensorData,2);
+    sensorData = array2table(sensorData,'VariableNames',{mainSensor});
+else
+    assert(sum(mainSensorIndex) == 1,['Did not find a column for sensor: ' mainSensor])
+end
+
+%Join into a temporary table
 C=[Y(:,1),sensorData]; 
 %Add the temperature column
 C.temperature = X.temperature;
@@ -56,13 +60,30 @@ end
 %--------------------------------------------------------------------------
 
 %--------------------------------------------------------------------------
-function y_hat = line3TApply(X,mdlstruct,settingsSet)
+function y_hat = line3TApply(X,mdlstruct,~)
 
-%Get the column name and model
+%Saved model parameters
 mdl = mdlstruct{1};
-mainSensor = mdlstruct{2}; 
+mainSensor=mdlstruct{2};
 
-C=X(:,mainSensor); %Join into a temporary table
+%Find the column containing the sensor for analysis
+columnNames = X.Properties.VariableNames;
+mainSensorIndex = contains(columnNames,mainSensor,'IgnoreCase',true);
+mainSensor = columnNames{mainSensorIndex};
+sensorData = X(:,mainSensorIndex);
+
+if sum(mainSensorIndex) > 1
+    warning(['Did not find a unique column for sensor: ' mainSensor]);
+    %Scale multiple sensors and then average them to keep model invertable
+    sensorData = zscore(table2array(sensorData));
+    sensorData = mean(sensorData,2);
+    sensorData = array2table(sensorData,'VariableNames',{mainSensor});
+else
+    assert(sum(mainSensorIndex) == 1,['Did not find a column for sensor: ' mainSensor])
+end
+
+%Join into a temporary table
+C=sensorData;
 C.temperature = X.temperature; %Add the temperature column
 C.humidity = X.humidity; %Add the humidity column
 

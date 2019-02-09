@@ -3,33 +3,49 @@ function func = podNN(a)
 %model to it including interaction terms.  NOTE: Data does NOT need to
 %already be in PCA form when it is passed to this function
 switch a
-    case 1; func = @JONNfit;
-    case 2; func = @JONNapply;
+    case 1; func = @NNFit;
+    case 2; func = @NNPredict;
 end
 
 end
 %--------------------------------------------------------------------------
 
 %-----------------------------FIT FUNC-------------------------------------
-function mdls = JONNfit(Y,X,settingsSet)
+function mdls = NNFit(Y,X,settingsSet)
+%Convert from table for functions
+x = table2array(X);
 
-%%% Get the time array
-%Training.unixtime = X.telapsed*60*60*24;
+%Add some lagged variables if the matrix is relatively small
+sensorList = contains(X.Properties.VariableNames,settingsSet.podSensors,'IgnoreCase',true);
+if sum(sensorList)<5
+    %Decide how many minutes to lag.  This is arbitrary.  If you change
+    %this, make sure to fix the predict function to match.
+    nLags = ceil(minutes(5)/minutes(settingsSet.timeAvg));
+    
+    %Get Environmental and other non-sensor Variables
+    envX = x(nLags+1:end,~sensorList);
+    
+    %Get sensor variables to lag
+    toLagX = x(:,sensorList);
+    
+    %Make Lag matrix
+    toLagX = lagmatrix(toLagX,0:nLags);
+    
+    %Have to remove rows of NaNs
+    toLagX = toLagX(nLags+1:end,:);
+    
+    %Re-combine lagged sensors and environmental parameters
+    x = [toLagX, envX];
+    
+    %Add zeros to the start to avoid size mismatch
+    x = [zeros(nLags,size(x,2));x];
+    
+end
 
-%% Use cell array formatting for inputs to network
-% Training.unixtime = X.telapsed*60*60*24;
-% X = table2array(X);
-% Y = table2array(Y);
-% x = cell(1,size(X,1));
-% y_t = cell(1,size(X,1));
-% for i = 1:size(X,1)
-%     x{i} = X(i,:)';
-%     y_t{i} = Y(i,:)';
-% end
-%% Use matrix formatting
-x = table2array(X)';
+%Neural nets want columns to be instances for some reason
+x = x';
 
-%Check for existing GPR for this pod
+%Check for existing optimized network topology for this pod
 if length(settingsSet.fileList.colocation.reference.files.bytes)==1; reffileName = settingsSet.fileList.colocation.reference.files.name;
 else; reffileName = settingsSet.fileList.colocation.reference.files.name{settingsSet.loops.i}; end
 currentRef = split(reffileName,'.');
@@ -38,7 +54,7 @@ currentRef = currentRef{1};
 filename = [settingsSet.podList.podName{settingsSet.loops.j} currentRef 'NNsave.mat'];
 regPath = fullfile(settingsSet.outpath,filename);
 
-%% If NN has already been optimized for this pod, can skip the optimization, which is really slow
+%% If NN has already been optimized for this pod, can skip the optimization, which can be really slow
 if exist(regPath,'file')==2
     %Load the previous analysis
     load(regPath);
@@ -50,15 +66,18 @@ else
         %% Get current y column
         y_t = table2array(Y(:,i))';
         
-        nLayer1 = optimizableVariable('nLayer1',[1,min(size(X,2),40)],'Type','integer');%
-        nLayer2 = optimizableVariable('nLayer2',[0,min(size(X,2),40)],'Type','integer');
+        nLayer1 = optimizableVariable('nLayer1',[1,min(size(x,1),100)],'Type','integer');%
+        nLayer2 = optimizableVariable('nLayer2',[0,min(size(x,1),100)],'Type','integer');
         hyperparametersRF = [nLayer1; nLayer2];
+        
+        %Warning: if this fails, try removing the "UseParallel" parameter
         rng(1)
-        results = bayesopt(@(params)oobErrNN(params, y_t, x),hyperparametersRF,...
+        results = bayesopt(@(params)NNLossFnc(params, y_t, x),hyperparametersRF,...
             'AcquisitionFunctionName','expected-improvement-plus',...
             'Verbose',0,'UseParallel', true,'NumSeedPoints',10,'MaxObjectiveEvaluations',50);
         
-        bestHyperparameters = results.XAtMinEstimatedObjective;
+        %Get the best observed parameters
+        bestHyperparameters = results.XAtMinObjective;
         
         nnstruct(1,i) = bestHyperparameters.nLayer1;
         nnstruct(2,i) =  bestHyperparameters.nLayer2;
@@ -104,14 +123,7 @@ for i = 1:size(Y,2)
     net.trainParam.goal = 0.001; %0 Performance goal
     net.trainParam.mu = .5 ; %0.005 Marquardt adjustment parameter
     net.trainParam.max_fail  = 10;        %   0  Maximum validation failures
-    %net.trainParam.mu_dec  = ;          % 0.1  Decrease factor for mu
-    %net.trainParam.mu_inc  = ;           % 10  Increase factor for mu
-    %net.trainParam.mu_max   = ;        % 1e10  Maximum value for mu
-    %net.trainParam.min_grad  = ;       % 1e-7  Minimum performance gradient
-    %net.trainParam.show   = ;           %  25  Epochs between displays
-    %net.trainParam.showCommandLine = ; % false  Generate command-line output
-    %net.trainParam.showWindow = true;      % true  Show training GUI
-    %net.trainParam.time  = inf ;            % inf  Maximum time to train in seconds
+
     
     %% Choose Input and Output Pre/Post-Processing Functions
     % For a list of all processing functions type: help nnprocess
@@ -152,7 +164,8 @@ end
 end
 %--------------------------------------------------------------------------
 
-function testErr = oobErrNN(params,y_t,x)
+function testErr = NNLossFnc(params,y_t,x)
+%This is the loss function that is optimized
 
 %% Create a Fitting Network
 %Number of hidden layers:
@@ -177,8 +190,8 @@ net.trainParam.max_fail  = 10;        %   0  Maximum validation failures
 net.input.processFcns = {'removeconstantrows','mapminmax'};
 net.output.processFcns = {'removeconstantrows','mapminmax'};
 
-%Make training, testing, and validation indices
-setList = repmat([ones(1,30) ones(1,15).*2 ones(1,20).*3],ceil(size(x,2)/65),1);
+%Make training, testing, and validation indices.  Divided to be first half, and subsequent quarters
+setList = [ones(1,ceil(size(x,2)*0.5)) ones(1,ceil(size(x,2)*0.25))*2 ones(1,ceil(size(x,2)*0.25))*3];
 setList = setList(1:size(x,2));
 indList = 1:size(x,2);
 trainList = indList(setList==1);
@@ -205,9 +218,38 @@ end
 
 
 %---------------------------APPLY------------------------------------------
-function y_hat = JONNapply(X,mdls,~)
+function y_hat = NNPredict(X,mdls,settingsSet)
 
-x = table2array(X)';
+%Convert from table for functions
+x = table2array(X);
+
+%Add some lagged variables if the matrix is relatively small
+sensorList = contains(X.Properties.VariableNames,settingsSet.podSensors,'IgnoreCase',true);
+if sum(sensorList)<5
+    %Decide how many lags to make.  This is arbitrary
+    nLags = ceil(minutes(5)/minutes(settingsSet.timeAvg));
+    
+    %Get Environmental Variables
+    envX = x(nLags+1:end,~sensorList);
+    
+    %Get sensor variables to lag
+    toLagX = x(:,sensorList);
+    
+    %Make Lag matrix
+    toLagX = lagmatrix(toLagX,0:nLags);
+    
+    %Have to remove rows of NaNs
+    toLagX = toLagX(nLags+1:end,:);
+    
+    %Re-combine lagged sensors and environmental parameters
+    x = [toLagX, envX];
+    
+    %Add zeros to the start to avoid size mismatch
+    x = [zeros(nLags,size(x,2));x];
+end
+
+%Neural nets want columns to be instances for some reason
+x = x';
 
 y_hat = zeros(length(mdls),size(X,1));
 for i=1:length(mdls)

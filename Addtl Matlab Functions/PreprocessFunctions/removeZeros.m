@@ -7,15 +7,11 @@ tempX = table2array(X);
 boolList = tempX==0;
 
 %Get median value
-medx = median(tempX);
+maxx = max(tempX);
 
-%Replace zeros with small, constant value
+%Replace zeros with small, constant value defined as 0.1% of the max
 for i = 1:size(X,2)
-    if medx(i)==0
-        tempX(boolList(:,i),i) = ones(sum(boolList(:,i)),1).*(1e-3);
-    else
-        tempX(boolList(:,i),i) = ones(sum(boolList(:,i)),1).*(medx(i)/1000);
-    end
+    tempX(boolList(:,i),i) = ones(sum(boolList(:,i)),1).*(maxx(i)/1000);
 end
 % %Remove those rows
 % X(boolList==1,:)=[];
