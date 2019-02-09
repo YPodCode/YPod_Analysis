@@ -7,6 +7,10 @@ Y = table2array(Y);
 %Number of folds that were fitted on
 nfolds = settingsSet.nFoldRep;
 
+%Get the index of the current validation and regression to get the right estimates
+k = settingsSet.loops.k;
+m=settingsSet.loops.m;
+
 %Initialize vector to hold error values
 p_RMSE = zeros(nfolds,2);
 
@@ -15,14 +19,14 @@ for kk = 1:nfolds
     %Get the reference values for calibration and validation sets
     temp_Y_cal = Y(valList~=kk,1);
     temp_Y_val = Y(valList==kk,1);
+    
     %Get the estimated values for calibration and validation sets
-    if isa(y_hat.cal{settingsSet.loops.m,settingsSet.loops.k,kk},'table')
-        y_hat = table2array(y_hat);
-        temp_yhat_cal = table2array(y_hat.cal{settingsSet.loops.m,settingsSet.loops.k,kk});
-        temp_yhat_val = table2array(y_hat.val{settingsSet.loops.m,settingsSet.loops.k,kk});
+    if isa(y_hat.cal{m,k,kk},'table')
+        temp_yhat_cal = table2array(y_hat.cal{m,k,kk});
+        temp_yhat_val = table2array(y_hat.val{m,k,kk});
     else
-        temp_yhat_cal = y_hat.cal{settingsSet.loops.m,settingsSet.loops.k,kk};
-        temp_yhat_val = y_hat.val{settingsSet.loops.m,settingsSet.loops.k,kk};
+        temp_yhat_cal = y_hat.cal{m,k,kk};
+        temp_yhat_val = y_hat.val{m,k,kk};
     end
     
     %Calculate RMSE and input into matrix (to be returned into the cell array "mdlStats")
